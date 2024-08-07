@@ -35,6 +35,7 @@ contract RockPaperPlaneCrowWithKnife is ReentrancyGuard {
     uint256 private constant MIN_BET = 0.0001 ether;
     uint256 private s_gameCounter;
     mapping(uint256 => Game) private s_games;
+    mapping(uint256 => address) private s_results;
     
     /**
      * Deposit ether
@@ -56,11 +57,10 @@ contract RockPaperPlaneCrowWithKnife is ReentrancyGuard {
     }
     
     /**
-     * Start game function to initialize a game
-     * @param bet The amount of ether to bet
+     * Start game function to initialize a game, the msg.value is the bet amount
      */
-    function startGame(uint256 bet) external payable returns (uint256){
-        if (msg.value < MIN_BET || msg.value != bet) {
+    function startGame() external payable returns (uint256){
+        if (msg.value < MIN_BET) {
             revert RPPCWF__NotEnoughFunds();
         }
 
@@ -71,7 +71,7 @@ contract RockPaperPlaneCrowWithKnife is ReentrancyGuard {
             encryptedMove2: 0,
             move1: Move.None,
             move2: Move.None,
-            bet: bet
+            bet: msg.value
         });
 
         emit GameStarted(s_gameCounter);
@@ -185,6 +185,8 @@ contract RockPaperPlaneCrowWithKnife is ReentrancyGuard {
 
         // Reset game state
         delete s_games[gameId];
+
+        s_results[gameId] = winner;
     }
 
     /**
@@ -218,5 +220,39 @@ contract RockPaperPlaneCrowWithKnife is ReentrancyGuard {
         } else {
             return 0;
         }
+    }
+
+    /// Public view / pure functions
+    function getResult(uint256 gameId) public view returns (address) {
+        return s_results[gameId];
+    }
+
+    function getBetForGame(uint256 gameId) public view returns (uint256) {
+        return s_games[gameId].bet;
+    }
+
+    function getGame(uint256 gameId) public view returns (
+        address player1,
+        address player2,
+        bytes32 encryptedMove1,
+        bytes32 encryptedMove2,
+        Move move1,
+        Move move2,
+        uint256 bet
+    ) {
+        Game storage game = s_games[gameId];
+        return (
+            game.player1,
+            game.player2,
+            game.encryptedMove1,
+            game.encryptedMove2,
+            game.move1,
+            game.move2,
+            game.bet
+        );
+    }
+
+    function getGameCounter() public view returns (uint256) {
+        return s_gameCounter;
     }
 }
