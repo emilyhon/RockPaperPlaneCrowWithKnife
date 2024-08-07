@@ -21,16 +21,17 @@ contract RockPaperPlaneCrowWithKnife is ReentrancyGuard {
 
     event GameStarted(uint256 gameId);
 
-    error RPPCWF__NotEnoughFunds();
-    error RPPCWF__NoGamesAvailable();
-    error RPPCWF__GameFull();
-    error RPPCWF__GameDoesNotExist();
-    error RPPCWF__MoveAlreadyPlayed();
-    error RPPCWF__InvalidPlayer();
-    error RPPCWF__InvalidMove();
-    error RPPCWF__MovesNotYetPlayed();
-    error RPPCWF__EncryptedMoveMismatch();
-    error RPPCWF__NoResultsToCalculate();
+    error RPPCWK__NotEnoughFunds();
+    error RPPCWK__NoGamesAvailable();
+    error RPPCWK__GameFull();
+    error RPPCWK__GameDoesNotExist();
+    error RPPCWK__MoveAlreadyPlayed();
+    error RPPCWK__InvalidPlayer();
+    error RPPCWK__InvalidMove();
+    error RPPCWK__MovesNotYetPlayed();
+    error RPPCWK__EncryptedMoveMismatch();
+    error RPPCWK__NoResultsToCalculate();
+    error RPPCWK__TransferFailed();
 
     uint256 private constant MIN_BET = 0.0001 ether;
     uint256 private s_gameCounter;
@@ -44,14 +45,14 @@ contract RockPaperPlaneCrowWithKnife is ReentrancyGuard {
 
     modifier onlyPlayer(uint256 gameId) {
         if (msg.sender != s_games[gameId].player1 && msg.sender != s_games[gameId].player2) {
-            revert RPPCWF__InvalidPlayer();
+            revert RPPCWK__InvalidPlayer();
         }
         _;
     }
 
     modifier gameExists(uint256 gameId) {
         if (s_games[gameId].player1 == address(0)) {
-            revert RPPCWF__GameDoesNotExist();
+            revert RPPCWK__GameDoesNotExist();
         }
         _;
     }
@@ -61,7 +62,7 @@ contract RockPaperPlaneCrowWithKnife is ReentrancyGuard {
      */
     function startGame() external payable returns (uint256){
         if (msg.value < MIN_BET) {
-            revert RPPCWF__NotEnoughFunds();
+            revert RPPCWK__NotEnoughFunds();
         }
 
         s_games[s_gameCounter] = Game({
@@ -88,10 +89,10 @@ contract RockPaperPlaneCrowWithKnife is ReentrancyGuard {
     function joinGame(uint256 gameId) external payable gameExists(gameId){
         Game storage game = s_games[gameId];
         if (msg.value != game.bet) {
-            revert RPPCWF__NotEnoughFunds();
+            revert RPPCWK__NotEnoughFunds();
         }
         if (game.player2 != address(0)) {
-            revert RPPCWF__GameFull();
+            revert RPPCWK__GameFull();
         }
 
         game.player2 = msg.sender;
@@ -105,13 +106,13 @@ contract RockPaperPlaneCrowWithKnife is ReentrancyGuard {
     function playMove(uint256 gameId, bytes32 encryptedMove) external onlyPlayer(gameId) gameExists(gameId) {
         if (msg.sender == s_games[gameId].player1) {
             if (s_games[gameId].move1 != Move.None) {
-                revert RPPCWF__MoveAlreadyPlayed();
+                revert RPPCWK__MoveAlreadyPlayed();
             }
 
             s_games[gameId].encryptedMove1 = encryptedMove;
         } else {
             if (s_games[gameId].move2 != Move.None) {
-                revert RPPCWF__MoveAlreadyPlayed();
+                revert RPPCWK__MoveAlreadyPlayed();
             }
 
             s_games[gameId].encryptedMove2 = encryptedMove;
@@ -128,17 +129,17 @@ contract RockPaperPlaneCrowWithKnife is ReentrancyGuard {
         Game storage game = s_games[gameId];
 
         if (game.encryptedMove1 == 0 || game.encryptedMove2 == 0) {
-            revert RPPCWF__MovesNotYetPlayed();
+            revert RPPCWK__MovesNotYetPlayed();
         }
 
         if (msg.sender == game.player1) {
             if (game.encryptedMove1 != encryptedMove) {
-                revert RPPCWF__EncryptedMoveMismatch();
+                revert RPPCWK__EncryptedMoveMismatch();
             }
             game.move1 = Move(moveInt);
         } else {
             if (game.encryptedMove2 != encryptedMove) {
-                revert RPPCWF__EncryptedMoveMismatch();
+                revert RPPCWK__EncryptedMoveMismatch();
             }
             game.move2 = Move(moveInt);
         }
@@ -154,7 +155,7 @@ contract RockPaperPlaneCrowWithKnife is ReentrancyGuard {
      */
     function calculateResult(uint256 gameId) private nonReentrant gameExists(gameId){
         if (s_games[gameId].move1 == Move.None || s_games[gameId].move2 == Move.None) {
-            revert RPPCWF__NoResultsToCalculate();
+            revert RPPCWK__NoResultsToCalculate();
         }
 
         Game storage game = s_games[gameId];
@@ -167,6 +168,7 @@ contract RockPaperPlaneCrowWithKnife is ReentrancyGuard {
             pay(winner, payout);
             winner = payable(game.player2);
             pay(winner, payout);
+            s_results[gameId] = address(this); // store contract address incase of draw
         } else if (
             (game.move1 == Move.Rock && game.move2 == Move.PaperPlane) ||
             (game.move1 == Move.PaperPlane && game.move2 == Move.CrowWithKnife) ||
@@ -176,30 +178,29 @@ contract RockPaperPlaneCrowWithKnife is ReentrancyGuard {
             payout = game.bet * 2;
             winner = payable(game.player2);
             pay(winner, payout);
+            s_results[gameId] = winner;
         } else {
             // Player 1 wins
             payout = game.bet * 2;
             winner = payable(game.player1);
             pay(winner, payout);
+            s_results[gameId] = winner;
         }
 
         // Reset game state
         delete s_games[gameId];
-
-        s_results[gameId] = winner;
     }
 
     /**
      * Pay a given address a given amount
-     * @param addr The address to pay
+     * @param recipient The address to pay
      * @param amount The amount to pay
      */
-    function pay(address payable addr, uint256 amount) private {
-        if (address(this).balance < amount) {
-            revert RPPCWF__NotEnoughFunds();
+    function pay(address payable recipient, uint256 amount) private {
+        (bool success, ) = recipient.call{value: amount}("");
+        if (!success) {
+            revert RPPCWK__TransferFailed();
         }
-
-        addr.transfer(amount);
     }
 
     /**
