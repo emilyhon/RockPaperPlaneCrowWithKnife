@@ -24,6 +24,7 @@ contract RockPaperPlaneCrowWithKnife is ReentrancyGuard {
     error RPPCWF__NotEnoughFunds();
     error RPPCWF__NoGamesAvailable();
     error RPPCWF__GameFull();
+    error RPPCWF__GameDoesNotExist();
     error RPPCWF__MoveAlreadyPlayed();
     error RPPCWF__InvalidPlayer();
     error RPPCWF__InvalidMove();
@@ -41,12 +42,16 @@ contract RockPaperPlaneCrowWithKnife is ReentrancyGuard {
     receive() external payable {}
 
     modifier onlyPlayer(uint256 gameId) {
-        require(msg.sender == s_games[gameId].player1 || msg.sender == s_games[gameId].player2, "Invalid player");
+        if (msg.sender != s_games[gameId].player1 && msg.sender != s_games[gameId].player2) {
+            revert RPPCWF__InvalidPlayer();
+        }
         _;
     }
 
     modifier gameExists(uint256 gameId) {
-        require(s_games[gameId].player1 != address(0), "Game does not exist");
+        if (s_games[gameId].player1 == address(0)) {
+            revert RPPCWF__GameDoesNotExist();
+        }
         _;
     }
     
@@ -116,32 +121,26 @@ contract RockPaperPlaneCrowWithKnife is ReentrancyGuard {
     /**
      * Reveal your move for a game
      * @param gameId The id of the game to reveal
-     * @param moveAndPassword The move and password to reveal in the format "move-password"
+     * @param moveInt The actual move
+     * @param encryptedMove The encrypted move
      */
-    function reveal(uint256 gameId, string memory moveAndPassword) external onlyPlayer(gameId) gameExists(gameId){
+    function reveal(uint256 gameId, uint256 moveInt, bytes32 encryptedMove) external onlyPlayer(gameId) gameExists(gameId){
         Game storage game = s_games[gameId];
 
         if (game.encryptedMove1 == 0 || game.encryptedMove2 == 0) {
             revert RPPCWF__MovesNotYetPlayed();
         }
 
-        bytes32 encryptedMove = sha256(abi.encodePacked(moveAndPassword));
-        Move move = Move(getFirstChar(moveAndPassword));
-
-        if (move == Move.None) {
-            revert RPPCWF__InvalidMove();
-        }
-
         if (msg.sender == game.player1) {
             if (game.encryptedMove1 != encryptedMove) {
                 revert RPPCWF__EncryptedMoveMismatch();
             }
-            game.move1 = move;
+            game.move1 = Move(moveInt);
         } else {
             if (game.encryptedMove2 != encryptedMove) {
                 revert RPPCWF__EncryptedMoveMismatch();
             }
-            game.move2 = move;
+            game.move2 = Move(moveInt);
         }
 
         if (game.move1 != Move.None && game.move2 != Move.None) {
