@@ -20,6 +20,10 @@ contract RockPaperPlaneCrowWithKnife is ReentrancyGuard {
     enum Result {None, Draw, Player1Wins, Player2Wins}
 
     event GameStarted(uint256 gameId);
+    event PlayMoveSuccess(bool success);
+    event MoveRevealed(uint256 gameId, address player, uint256 moveInt);
+    event GameResultAvailable(uint256 gameId, uint256 resultInt, address winner);
+    event GamePaidOut(address winner, uint256 amount);
 
     error RPPCWK__NotEnoughFunds();
     error RPPCWK__NoGamesAvailable();
@@ -106,17 +110,21 @@ contract RockPaperPlaneCrowWithKnife is ReentrancyGuard {
     function playMove(uint256 gameId, bytes32 encryptedMove) external onlyPlayer(gameId) gameExists(gameId) {
         if (msg.sender == s_games[gameId].player1) {
             if (s_games[gameId].move1 != Move.None) {
+                emit PlayMoveSuccess(false);
                 revert RPPCWK__MoveAlreadyPlayed();
             }
 
             s_games[gameId].encryptedMove1 = encryptedMove;
         } else {
             if (s_games[gameId].move2 != Move.None) {
+                emit PlayMoveSuccess(false);
                 revert RPPCWK__MoveAlreadyPlayed();
             }
 
             s_games[gameId].encryptedMove2 = encryptedMove;
         }
+
+        emit PlayMoveSuccess(true);
     }
 
     /**
@@ -144,6 +152,8 @@ contract RockPaperPlaneCrowWithKnife is ReentrancyGuard {
             game.move2 = Move(moveInt);
         }
 
+        emit MoveRevealed(gameId, msg.sender, moveInt);
+
         if (game.move1 != Move.None && game.move2 != Move.None) {
             calculateResult(gameId);
         }
@@ -169,6 +179,7 @@ contract RockPaperPlaneCrowWithKnife is ReentrancyGuard {
             winner = payable(game.player2);
             pay(winner, payout);
             s_results[gameId] = address(this); // store contract address incase of draw
+            emit GameResultAvailable(gameId, uint256(Result.Draw), address(0));
         } else if (
             (game.move1 == Move.Rock && game.move2 == Move.PaperPlane) ||
             (game.move1 == Move.PaperPlane && game.move2 == Move.CrowWithKnife) ||
@@ -179,12 +190,14 @@ contract RockPaperPlaneCrowWithKnife is ReentrancyGuard {
             winner = payable(game.player2);
             pay(winner, payout);
             s_results[gameId] = winner;
+            emit GameResultAvailable(gameId, uint256(Result.Player2Wins), winner);
         } else {
             // Player 1 wins
             payout = game.bet * 2;
             winner = payable(game.player1);
             pay(winner, payout);
             s_results[gameId] = winner;
+            emit GameResultAvailable(gameId, uint256(Result.Player1Wins), winner);
         }
 
         // Reset game state
@@ -201,26 +214,8 @@ contract RockPaperPlaneCrowWithKnife is ReentrancyGuard {
         if (!success) {
             revert RPPCWK__TransferFailed();
         }
-    }
 
-    /**
-     * Return first character of a given string
-     */
-    function getFirstChar(string memory str) private pure returns (uint256) {
-        bytes memory b = bytes(str);
-        if (b.length == 0) {
-            return 0;
-        }
-        bytes1 firstByte = b[0];
-        if (firstByte == 0x31) {
-            return 1;
-        } else if (firstByte == 0x32) {
-            return 2;
-        } else if (firstByte == 0x33) {
-            return 3;
-        } else {
-            return 0;
-        }
+        emit GamePaidOut(recipient, amount);
     }
 
     /// Public view / pure functions
